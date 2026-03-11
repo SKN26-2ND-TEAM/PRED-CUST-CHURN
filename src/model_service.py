@@ -85,6 +85,14 @@ def add_engineered_features(feature_df: pd.DataFrame) -> pd.DataFrame:
     df["monthly_payment_flag"] = (df["payment_frequency"] == "Monthly").astype(int)
     df["monthly_x_premium_jump"] = df["monthly_payment_flag"] * df["premium_jump_flag"]
     df["auto_or_health"] = df["policy_type"].isin(["Auto", "Health"]).astype(int)
+    df["recent_price_pain_flag"] = (
+        (df["premium_change_pct"] >= 0.10) & (df["num_price_increases_last_3y"] >= 2)
+    ).astype(int)
+    df["payment_deterioration_flag"] = (
+        (df["late_payment_count_12m"] >= 2)
+        & ((df["autopay_enabled"] == 0) | (df["missed_payment_flag"] == 1))
+    ).astype(int)
+    df["high_touch_complaint"] = df["complaint_flag"] * df["num_contacts_12m"].clip(0, 10)
     return df
 
 
@@ -153,17 +161,23 @@ def risk_tier_to_korean(value: str) -> str:
 def build_reason_text(row: pd.Series) -> str:
     reasons = []
 
-    if row.get("premium_change_pct", 0) >= 0.12:
+    if row.get("recent_price_pain_flag", 0) == 1:
+        reasons.append("최근 보험료 인상 부담이 큼")
+    elif row.get("premium_change_pct", 0) >= 0.12:
         reasons.append("보험료 인상폭이 큼")
     elif row.get("num_price_increases_last_3y", 0) >= 2:
         reasons.append("최근 보험료 인상 횟수가 많음")
 
-    if row.get("late_payment_count_12m", 0) >= 2:
+    if row.get("payment_deterioration_flag", 0) == 1:
+        reasons.append("납부 패턴이 불안정해짐")
+    elif row.get("late_payment_count_12m", 0) >= 2:
         reasons.append("최근 연체 횟수가 많음")
     elif row.get("missed_payment_flag", 0) == 1:
         reasons.append("납부 누락 이력이 있음")
 
-    if row.get("complaint_flag", 0) == 1:
+    if row.get("high_touch_complaint", 0) >= 3:
+        reasons.append("민원 이후 고객 접촉이 많음")
+    elif row.get("complaint_flag", 0) == 1:
         reasons.append("민원 이력이 있음")
 
     if row.get("quote_requested_flag", 0) == 1:
